@@ -14,7 +14,6 @@ import (
 	"go/parser"
 	"go/token"
 	"io"
-	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -22,11 +21,11 @@ import (
 )
 
 const (
-	TAG_FILE_FORMAT     = "!_TAG_FILE_FORMAT\t2"
-	TAG_FILE_SORTED     = "!_TAG_FILE_SORTED\t1"
-	TAG_PROGRAM_AUTHOR  = "!_TAG_PROGRAM_AUTHOR\tArjen Laarhoven"
-	TAG_PROGRAM_NAME    = "!_TAG_PROGRAM_NAME\ttaggo"
-	TAG_PROGRAM_URL     = "!_TAG_PROGRAM_URL\thttps://github.com/ArjenL/taggo"
+	TAG_FILE_FORMAT    = "!_TAG_FILE_FORMAT\t2"
+	TAG_FILE_SORTED    = "!_TAG_FILE_SORTED\t1"
+	TAG_PROGRAM_AUTHOR = "!_TAG_PROGRAM_AUTHOR\tArjen Laarhoven"
+	TAG_PROGRAM_NAME   = "!_TAG_PROGRAM_NAME\ttaggo"
+	TAG_PROGRAM_URL    = "!_TAG_PROGRAM_URL\thttps://github.com/ArjenL/taggo"
 
 	CLASS  = 'c' // Interface ('class')
 	CONST  = 'd' // Constant ('#define')
@@ -47,28 +46,9 @@ var (
 func main() {
 	flag.Parse()
 
-	// Expand the content of given subdirs into a list of files.
-	for _, fn := range flag.Args() {
-		fi, err := os.Stat(fn)
-		if err != nil {
-			continue // Skip unreadable or nonexistent files
-		}
-
-		if fi.Mode()&os.ModeType == 0 && strings.HasSuffix(fn, ".go") {
-			files = append(files, fn)
-		}
-
-		if *recurseSubdirs && fi.IsDir() {
-			filepath.Walk(fi.Name(), walker)
-		}
-	}
-
 	// Parse the given files.
-	var fset *token.FileSet = token.NewFileSet()
-	pkgs, err := parser.ParseFiles(fset, files, parser.SpuriousErrors)
-	if err != nil {
-		log.Printf("Error parsing file %v\n", err)
-	}
+	fset := token.NewFileSet()
+	pkgs, _ := parseFiles(fset)
 
 	// Extract toplevel declaration information from the packages.
 	for _, pkg := range pkgs {
@@ -131,6 +111,7 @@ func genDecl(fset *token.FileSet, decl *ast.GenDecl) {
 	}
 }
 
+// Handle structures/"classes" (interfaces)
 func typeSpec(fset *token.FileSet, spec *ast.TypeSpec) {
 	switch st := spec.Type.(type) {
 	case *ast.StructType:
@@ -195,6 +176,46 @@ func contentOfLine(line int, file string) []byte {
 	return []byte("")
 }
 
+// Parse the files given on the command-line
+func parseFiles(fset *token.FileSet) (map[string]*ast.Package, error) {
+	// Expand the content of given subdirs into a list of files.
+	for _, fn := range flag.Args() {
+		fi, err := os.Stat(fn)
+		if err != nil {
+			continue // Skip unreadable or nonexistent files
+		}
+
+		if fi.Mode()&os.ModeType == 0 && strings.HasSuffix(fn, ".go") {
+			files = append(files, fn)
+		}
+
+		if *recurseSubdirs && fi.IsDir() {
+			filepath.Walk(fi.Name(), walker)
+		}
+	}
+
+	var pkgs = make(map[string]*ast.Package)
+	var first error
+
+	for _, filename := range files {
+		if src, err := parser.ParseFile(fset, filename, nil, parser.SpuriousErrors); err == nil {
+			name := src.Name.Name
+			pkg, found := pkgs[name]
+			if !found {
+				pkg = &ast.Package{
+					Name:  name,
+					Files: make(map[string]*ast.File),
+				}
+				pkgs[name] = pkg
+			}
+			pkg.Files[filename] = src
+		} else if first == nil {
+			first = err
+		}
+	}
+	return pkgs, first
+}
+
 // Walker function for filepath.Walk
 func walker(path string, fi os.FileInfo, err error) error {
 	if fi.Mode()&os.ModeType == 0 && strings.HasSuffix(fi.Name(), ".go") {
@@ -203,6 +224,7 @@ func walker(path string, fi os.FileInfo, err error) error {
 	return nil
 }
 
+// Output the tag header to standard output
 func printTagsHeader() {
 	fmt.Println(TAG_FILE_FORMAT)
 	fmt.Println(TAG_FILE_SORTED)
