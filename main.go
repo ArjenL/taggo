@@ -173,7 +173,6 @@ func contentOfLine(line int, file string) []byte {
 
 		ln++
 	}
-	return []byte("")
 }
 
 // Parse the files given on the command-line
@@ -185,7 +184,7 @@ func parseFiles(fset *token.FileSet) (map[string]*ast.Package, error) {
 			continue // Skip unreadable or nonexistent files
 		}
 
-		if fi.Mode()&os.ModeType == 0 && strings.HasSuffix(fn, ".go") {
+		if fi.Mode().IsRegular() && filepath.Ext(fn) == ".go" {
 			files = append(files, fn)
 		}
 
